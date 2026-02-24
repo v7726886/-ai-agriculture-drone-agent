@@ -1,50 +1,112 @@
-import cv2
-import numpy as np
 import requests
+from PIL import Image
+from io import BytesIO
+from ultralytics import YOLO
 
-class YoloDetector:
-    def __init__(self, model_path, conf_threshold=0.5):
-        self.net = cv2.dnn.readNet(model_path)
-        self.conf_threshold = conf_threshold
-        self.classes = ['weed', 'intruder']  # Example classes; adjust accordingly
 
-    def process_image(self, image_url):
-        # Download the image
-        response = requests.get(image_url)
-        image = cv2.imdecode(np.frombuffer(response.content, np.uint8), cv2.IMREAD_COLOR)
-        return image
+class YOLOv8Detector:
+    def __init__(self, model_path: str = "yolov8n.pt"):
+        """Initialize YOLOv8 detector with specified model."""
+        self.model = YOLO(model_path)
 
-    def detect(self, image_url):
-        image = self.process_image(image_url)
-        height, width = image.shape[:2]
+    def detect_from_url(self, image_url: str, confidence_threshold: float = 0.5):
+        """
+        Detect weeds and intruders in an image from URL.
+        
+        Args:
+            image_url: URL of the image to analyze
+            confidence_threshold: Minimum confidence score (0-1)
+        
+        Returns:
+            dict: Contains weed_count, intruder_count, and confidence levels
+        """
+        try:
+            # Fetch image from URL
+            response = requests.get(image_url, timeout=10)
+            img = Image.open(BytesIO(response.content))
+            
+            # Run inference
+            results = self.model(img)
+            
+            weed_count = 0
+            intruder_count = 0
+            weed_confidences = []
+            intruder_confidences = []
+            
+            # Parse results
+            for result in results:
+                for box in result.boxes:
+                    label = self.model.model.names[int(box.cls)]
+                    conf = float(box.conf)
+                    
+                    if conf >= confidence_threshold:
+                        if label.lower() in ["weed", "weeds"]:
+                            weed_count += 1
+                            weed_confidences.append(conf)
+                        elif label.lower() in ["intruder", "intruders"]:
+                            intruder_count += 1
+                            intruder_confidences.append(conf)
+            
+            return {
+                "weed_count": weed_count,
+                "weed_confidences": weed_confidences,
+                "intruder_count": intruder_count,
+                "intruder_confidences": intruder_confidences,
+                "total_detections": weed_count + intruder_count,
+                "status": "success"
+            }
+        except Exception as e:
+            return {
+                "error": str(e),
+                "status": "failed"
+            }
 
-        # Prepare the image for detection
-        blob = cv2.dnn.blobFromImage(image, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
-        self.net.setInput(blob)
-        layer_names = self.net.getLayerNames()
-        output_layers = [layer_names[i[0] - 1] for i in self.net.getUnconnectedOutLayers()]
-        outputs = self.net.forward(output_layers)
-
-        detections = []
-        for output in outputs:
-            for detection in output:
-                scores = detection[5:]
-                class_id = np.argmax(scores)
-                confidence = scores[class_id]
-                if confidence > self.conf_threshold:
-                    detections.append((self.classes[class_id], confidence))
-
-        return detections
-
-    def count_detections(self, image_url):
-        detections = self.detect(image_url)
-        count = {cls: 0 for cls in self.classes}
-        for detection in detections:
-            count[detection[0]] += 1
-
-        return count
-
-# Example usage:
-# detector = YoloDetector('yolov8.weights')
-# counts = detector.count_detections('http://example.com/image.jpg')
-# print(counts)
+    def detect_from_file(self, file_path: str, confidence_threshold: float = 0.5):
+        """
+        Detect weeds and intruders in a local image file.
+        
+        Args:
+            file_path: Path to the image file
+            confidence_threshold: Minimum confidence score (0-1)
+        
+        Returns:
+            dict: Contains detection results
+        """
+        try:
+            img = Image.open(file_path)
+            
+            # Run inference
+            results = self.model(img)
+            
+            weed_count = 0
+            intruder_count = 0
+            weed_confidences = []
+            intruder_confidences = []
+            
+            # Parse results
+            for result in results:
+                for box in result.boxes:
+                    label = self.model.model.names[int(box.cls)]
+                    conf = float(box.conf)
+                    
+                    if conf >= confidence_threshold:
+                        if label.lower() in ["weed", "weeds"]:
+                            weed_count += 1
+                            weed_confidences.append(conf)
+                        elif label.lower() in ["intruder", "intruders"]:
+                            intruder_count += 1
+                            intruder_confidences.append(conf)
+            
+            return {
+                "weed_count": weed_count,
+                "weed_confidences": weed_confidences,
+                "intruder_count": intruder_count,
+                "intruder_confidences": intruder_confidences,
+                "total_detections": weed_count + intruder_count,
+                "status": "success"
+            }
+        except Exception as e:
+            return {
+                "error": str(e),
+                "status": "failed"
+            }
